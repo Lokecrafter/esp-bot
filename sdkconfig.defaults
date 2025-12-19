@@ -1,0 +1,3 @@
+# Project SDK config defaults for PlatformIO
+# Ensure Arduino component requirement for FreeRTOS tick rate
+CONFIG_FREERTOS_HZ=1000
