@@ -1,82 +1,14 @@
-# include <stdio.h>
-# include <stdlib.h>
-# include <freertos/FreeRTOS.h>
-# include <freertos/task.h>
-# include <freertos/semphr.h>
-# include <Arduino.h>
-# include <Wire.h>
-# include <driver/gpio.h>
-# include <driver/adc.h>
-# include <FastLED.h>
-# include "lidarPos.h"
-# include "lidarDist.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+#include <cstdio>
+#include "lidar.h"
+#include "driver/gpio.h"
 
-// Extern declaration for semaphore from lidarPos.h
-
-
-void fast_led_task(void *pvParameters) {
-    #define NUM_LEDS 24
-    #define DATA_PIN 5
-    #define DELAY_VAL 10
-
-
-    CRGB leds[NUM_LEDS];
-    FastLED.addLeds<NEOPIXEL, DATA_PIN>(leds, NUM_LEDS);
-    // pinMode(A5, INPUT);
-
-    float percentage = 0;
-
-    while(1){
-        FastLED.clear();
-        percentage = ((uint32_t)floor(get_lidar_angle()) % 360) / (float)360;
-
-        for (int i = 0; i < ceilf(percentage * NUM_LEDS); i++)
-        {
-            leds[i].setRGB(50, 0, 0);
-        }
-        FastLED.show();
-
-        vTaskDelay(pdMS_TO_TICKS(DELAY_VAL));
-        // percentage += 0.1;
-        // if (percentage > 1){
-        //     percentage -= 1;
-        // }
-    }
-}
+static const char *TAG = "MAIN";
 
 extern "C" void app_main() {
-    initArduino();
-    Serial.begin(115200);
-    Serial.println("Hello");
+    gpio_install_isr_service(0);
 
-
-    // xTaskCreatePinnedToCore(
-    //     lidarPos_task,
-    //     "lidarPos_task",       // Task-name
-    //     4096,                  // Stacksize
-    //     NULL,                  // Parameter
-    //     0,                     // Priority
-    //     NULL,                  // Task-handle
-    //     1                      // Core: 0 eller 1
-    // );
-    init_adc_monitor();
-
-    xTaskCreatePinnedToCore(
-        lidarDist_task,
-        "lidarDist_task",       // Task-name
-        4096,                  // Stacksize
-        NULL,                  // Parameter
-        1,                     // Priority
-        NULL,                  // Task-handle
-        0                      // Core: 0 eller 1
-    );
-    xTaskCreatePinnedToCore(
-        fast_led_task,
-        "fast_led_task",       // Task-name
-        4096,                  // Stacksize
-        NULL,                  // Parameter
-        2,                     // Priority
-        NULL,                  // Task-handle
-        0                      // Core: 0 eller 1
-    );
+    init_lidar(2048, 5, 1);
 }
