@@ -6,6 +6,7 @@
 # include "driver/gpio.h"
 # include "driver/i2c_master.h"
 # include <string>
+# include "esp_timer.h"
 
 
 # define LIDAR_INTERRUPT_PIN GPIO_NUM_13
@@ -16,6 +17,7 @@ static const char *TAG = "LIDAR";
 SemaphoreHandle_t sensor_sem = NULL;
 i2c_master_bus_handle_t i2c_bus;
 i2c_master_dev_handle_t lidar_dev;
+uint8_t measurement_counter = 0;
 
 void write_to_lidar_register(uint8_t reg, uint8_t value){
     uint8_t data[2] = {reg, value};
@@ -58,8 +60,6 @@ static std::string format_binary8(uint8_t value) {
     return out;
 }
 
-
-
 // ISR for LIDAR measurement ready interrupt
 static void IRAM_ATTR lidar_measurement_isr_handler(void* arg) {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -70,12 +70,18 @@ static void IRAM_ATTR lidar_measurement_isr_handler(void* arg) {
     }
 }
 void sensor_read_task(void *pvParameters) {
+    uint64_t last_wake_microseconds = esp_timer_get_time();
+
     while (1) {
-        start_distance_measurement(false);
+        if (measurement_counter >= 100) measurement_counter = 0;
+        if (measurement_counter == 0) ESP_LOGI(TAG, "Bias correction measurement");
+        start_distance_measurement(measurement_counter == 0);
+        measurement_counter++;
 
         if (xSemaphoreTake(sensor_sem, pdMS_TO_TICKS(200)) == pdTRUE) {
             uint16_t distance = read_distance_measurement();
-            ESP_LOGI(TAG, "%d cm", distance); 
+            ESP_LOGI(TAG, "%d cm   Frequency: %f Hz", distance, 1000000.0f/(esp_timer_get_time() - last_wake_microseconds));
+            last_wake_microseconds = esp_timer_get_time();
         }
         else {
             uint16_t distance = read_distance_measurement();
@@ -111,7 +117,7 @@ void init_lidar(uint32_t stack_size, uint8_t priority, uint8_t core_id) {
     // Reset LIDAR registers
     vTaskDelay(pdMS_TO_TICKS(100));
     write_to_lidar_register(0x00, 0x00);
-    ESP_LOGI(TAG, "LIDAR SERIAL NUMBER: %d", (read_from_lidar_register(0x16) << 8) | read_from_lidar_register(0x17));
+    ESP_LOGI(TAG, "LIDAR SERIAL NUMBER: %d", (read_from_lidar_register(0x16) << 8) | read_from_lidar_register(0x17)); // Log LIDAR lite v3 serial number
     vTaskDelay(pdMS_TO_TICKS(100));
 
 
@@ -122,13 +128,8 @@ void init_lidar(uint32_t stack_size, uint8_t priority, uint8_t core_id) {
     # define REF_COUNT_VAL_REG 0x12
     # define THRESHOLD_BYPASS_REG 0x1c
 
-    // Configure LIDAR registers
-    uint8_t new_acq_config = 0;
-    new_acq_config |= 0b01; // Status output mode
-    // new_acq_config |= (1 << 5);
-    write_to_lidar_register(ACQ_CONFIG_REG, new_acq_config);    ESP_LOGI(TAG, "ACQ Config set to %s", format_binary8(read_from_lidar_register(ACQ_CONFIG_REG)).c_str());
-    // write_to_lidar_register(MEASURE_DELAY_REG, 0);              ESP_LOGI(TAG, "MEASURE_DELAY_REG set to %d", read_from_lidar_register(MEASURE_DELAY_REG));
-    write_to_lidar_register(OUTER_LOOP_COUNT_REG, 0x00);        ESP_LOGI(TAG, "OUTER_LOOP_COUNT_REG set to %d", read_from_lidar_register(OUTER_LOOP_COUNT_REG));
+    // Configure LIDAR mode control pin to be able to trigger interrupts
+    write_to_lidar_register(ACQ_CONFIG_REG, 0b01);    ESP_LOGI(TAG, "ACQ Config set to %s", format_binary8(read_from_lidar_register(ACQ_CONFIG_REG)).c_str());
     
     // Configure GPIO and ISR for LIDAR interrupts
     sensor_sem = xSemaphoreCreateBinary();
