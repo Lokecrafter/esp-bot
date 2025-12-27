@@ -15,6 +15,8 @@
 
 static const char *TAG = "LIDAR";
 
+QueueHandle_t lidar_packet_queue = NULL;
+
 SemaphoreHandle_t sensor_sem = NULL;
 i2c_master_bus_handle_t i2c_bus;
 i2c_master_dev_handle_t lidar_dev;
@@ -83,7 +85,7 @@ void sensor_read_task(void *pvParameters) {
         
         vTaskDelay(pdMS_TO_TICKS(1)); // Minimum delay to allow measurement to start
         
-        uint64_t wait_start = esp_timer_get_time();
+        // uint64_t wait_start = esp_timer_get_time();
         if (xSemaphoreTake(sensor_sem, pdMS_TO_TICKS(200)) == pdTRUE) {
             last_wake_microseconds = esp_timer_get_time();
             uint16_t distance = read_distance_measurement();

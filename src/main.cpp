@@ -6,7 +6,7 @@
 #include "tachometer.h"
 #include "driver/gpio.h"
 
-static const char *TAG = "MAIN";
+// static const char *TAG = "MAIN";
 
 
 // void test_task(void *pvParameters) {
@@ -26,8 +26,8 @@ static const char *TAG = "MAIN";
 
 extern "C" void app_main() {
 
-    init_lidar(2048, 5, 1);
-    // init_tachometer(4096, 5, 1);
+    init_lidar(4096, 5, 1);
+    init_tachometer(4096, 5, 1);
     // xTaskCreatePinnedToCore(
     //     &test_task,
     //     "test_task",

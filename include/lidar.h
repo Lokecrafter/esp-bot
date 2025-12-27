@@ -12,7 +12,7 @@ typedef struct __attribute__((packed)) {
     uint16_t distance;
 } lidar_data_t;
 
-QueueHandle_t lidar_packet_queue;
+extern QueueHandle_t lidar_packet_queue;
 
 void init_lidar(uint32_t stack_size, uint8_t priority, uint8_t core_id);
 # endif // LIDAR_H
