@@ -7,6 +7,7 @@
 # include "driver/i2c_master.h"
 # include <string>
 # include "esp_timer.h"
+# include "tachometer.h"
 
 
 # define LIDAR_INTERRUPT_PIN GPIO_NUM_13
@@ -75,7 +76,7 @@ void sensor_read_task(void *pvParameters) {
     uint64_t last_wake_microseconds = esp_timer_get_time();
     
     while (1) {
-        if (measurement_counter >= 100) measurement_counter = 0;
+        if (measurement_counter >= LIDAR_PACKET_LENGTH) measurement_counter = 0;
         if (measurement_counter == 0) ESP_LOGI(TAG, "Bias correction measurement");
         start_distance_measurement(measurement_counter == 0);
         measurement_counter++;
@@ -84,9 +85,17 @@ void sensor_read_task(void *pvParameters) {
         
         uint64_t wait_start = esp_timer_get_time();
         if (xSemaphoreTake(sensor_sem, pdMS_TO_TICKS(200)) == pdTRUE) {
-            uint16_t distance = read_distance_measurement();
-            ESP_LOGI(TAG, "%d cm   Frequency: %f Hz   Wait time: %llu µs", distance, 1000000.0f/(esp_timer_get_time() - last_wake_microseconds), esp_timer_get_time() - wait_start);
             last_wake_microseconds = esp_timer_get_time();
+            uint16_t distance = read_distance_measurement();
+
+            lidar_data_t data = {
+                .angle = tachometer_get_angle_degrees(last_wake_microseconds),
+                .distance = distance
+            };
+
+            xQueueSend(lidar_packet_queue, &data, 0);
+
+            // ESP_LOGI(TAG, "%d cm   Frequency: %f Hz   Wait time: %llu µs", distance, 1000000.0f/(esp_timer_get_time() - last_wake_microseconds), esp_timer_get_time() - wait_start);
         }
         else {
             uint16_t distance = read_distance_measurement();
@@ -100,6 +109,8 @@ void sensor_read_task(void *pvParameters) {
 
 void init_lidar(uint32_t stack_size, uint8_t priority, uint8_t core_id) {
     ESP_LOGI(TAG, "Initializing LIDAR...");
+
+    lidar_packet_queue = xQueueCreate(LIDAR_PACKET_LENGTH*LIDAR_PACKET_QUEUE_MAX_AMOUNT, sizeof(lidar_data_t));
 
     // Configure I2C for LIDAR
     i2c_master_bus_config_t bus_config = {};

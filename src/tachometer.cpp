@@ -66,6 +66,14 @@ void tachometer_task(void *pvParameters) {
     }
 }
 
+float tachometer_get_angle_degrees(uint32_t time_micro_seconds) {
+    if (tachometer_interval_micro_seconds == (uint32_t)-1) {
+        return 0.0f; // No valid measurement yet
+    }
+    float angle = 360.0f * (float)time_micro_seconds / tachometer_interval_micro_seconds;
+    return angle;
+}
+
 void init_tachometer(uint32_t stack_size, uint8_t priority, uint8_t core_id) {
     adc_continuous_handle_cfg_t adc_config = {
         .max_store_buf_size = ADC_BUFFER_SIZE,
