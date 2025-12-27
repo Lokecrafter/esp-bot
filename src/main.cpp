@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include <cstdio>
 #include "lidar.h"
+#include "tachometer.h"
 #include "driver/gpio.h"
 
 static const char *TAG = "MAIN";
@@ -26,6 +27,7 @@ static const char *TAG = "MAIN";
 extern "C" void app_main() {
 
     init_lidar(2048, 5, 1);
+    // init_tachometer(4096, 5, 1);
     // xTaskCreatePinnedToCore(
     //     &test_task,
     //     "test_task",

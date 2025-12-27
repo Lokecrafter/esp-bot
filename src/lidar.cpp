@@ -29,6 +29,8 @@ uint8_t read_from_lidar_register(uint8_t reg){
     return buffer;
 }
 void start_distance_measurement(bool bias_correction){
+    xSemaphoreTake(sensor_sem, 0);
+
     # define ACQ_COMMAND_REG 0x00
     if(bias_correction)     write_to_lidar_register(ACQ_COMMAND_REG, 0x04); // with receiver bias correction
     else                    write_to_lidar_register(ACQ_COMMAND_REG, 0x03); // without
@@ -71,16 +73,19 @@ static void IRAM_ATTR lidar_measurement_isr_handler(void* arg) {
 }
 void sensor_read_task(void *pvParameters) {
     uint64_t last_wake_microseconds = esp_timer_get_time();
-
+    
     while (1) {
         if (measurement_counter >= 100) measurement_counter = 0;
         if (measurement_counter == 0) ESP_LOGI(TAG, "Bias correction measurement");
         start_distance_measurement(measurement_counter == 0);
         measurement_counter++;
-
+        
+        vTaskDelay(pdMS_TO_TICKS(1)); // Minimum delay to allow measurement to start
+        
+        uint64_t wait_start = esp_timer_get_time();
         if (xSemaphoreTake(sensor_sem, pdMS_TO_TICKS(200)) == pdTRUE) {
             uint16_t distance = read_distance_measurement();
-            ESP_LOGI(TAG, "%d cm   Frequency: %f Hz", distance, 1000000.0f/(esp_timer_get_time() - last_wake_microseconds));
+            ESP_LOGI(TAG, "%d cm   Frequency: %f Hz   Wait time: %llu µs", distance, 1000000.0f/(esp_timer_get_time() - last_wake_microseconds), esp_timer_get_time() - wait_start);
             last_wake_microseconds = esp_timer_get_time();
         }
         else {
