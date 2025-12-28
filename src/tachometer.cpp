@@ -58,7 +58,7 @@ void tachometer_task(void *pvParameters) {
                         tachometer_interval_micro_seconds = (3 * tachometer_interval_micro_seconds + diff) / 4; // Averaging with weight 90% old, 10% new
                         tachometer_last_pulse_time = pulse_time;
                         
-                        ESP_LOGI(TAG, "PULSE DETECTED!   Time: %lu ms Val: %lu Laptime: %lu ms   Finish frame time: %lu   Num_samples: %d", pulse_time/1000, val, tachometer_interval_micro_seconds/1000, finish_time, num_samples);
+                        // ESP_LOGI(TAG, "PULSE DETECTED!   Time: %lu ms Val: %lu Laptime: %lu ms   Finish frame time: %lu   Num_samples: %d", pulse_time/1000, val, tachometer_interval_micro_seconds/1000, finish_time, num_samples);
                     }
                 }
             }
@@ -70,7 +70,7 @@ float tachometer_get_angle_degrees(uint32_t time_micro_seconds) {
     if (tachometer_interval_micro_seconds == (uint32_t)-1) {
         return 0.0f; // No valid measurement yet
     }
-    float angle = 360.0f * (float)time_micro_seconds / tachometer_interval_micro_seconds;
+    float angle = 360.0f * (float)(time_micro_seconds - tachometer_last_pulse_time) / tachometer_interval_micro_seconds;
     return angle;
 }
 

@@ -1,92 +1,83 @@
-import time
-import threading
-import queue
-import sys
-import subprocess
+import asyncio
+import websockets
+import struct
+import socket # <--- Lägg till denna för att hämta IP
+import matplotlib.pyplot as plt
+import numpy as np
 
-try:
-    import pyttsx3
-    pyttsx3_available = True
-    print("[TTS] pyttsx3 import OK")
-except Exception as e:
-    pyttsx3_available = False
-    print("[TTS] pyttsx3 import failed:", repr(e))
 
-# On Windows, using PowerShell/System.Speech is often more reliable than pyttsx3
-USE_POWERSHELL_TTS = sys.platform == "win32"
 
-# Queue + worker thread so TTS calls are serialized and reliable
-_tts_queue = queue.Queue()
 
-def _tts_worker():
-    if not pyttsx3_available:
-        print("[TTS] worker: pyttsx3 not available, exiting")
-        return
+# Inställningar - se till att porten matchar den i din ESP32-kod
+IP = "0.0.0.0" # Lyssna på alla nätverkskort
+PORT = 8080
+
+# Struct-format: 
+# < = Little Endian (standard för ESP32)
+# f = float (4 bytes, vinkel)
+# H = unsigned short (2 bytes, distans)
+# Vi förväntar oss 100 stycken av dessa i rad
+LIDAR_PACKET_LENGTH = 100
+MEASUREMENT_SIZE = 6 # 4 + 2 bytes
+EXPECTED_SIZE = LIDAR_PACKET_LENGTH * MEASUREMENT_SIZE
+
+
+
+
+def get_local_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        engine = pyttsx3.init()
-        engine.setProperty('rate', 160)
-        print("[TTS] engine initialized in worker")
-        try:
-            voices = engine.getProperty('voices')
-            print(f"[TTS] voices: {len(voices)} available")
-            for i, v in enumerate(voices[:5]):
-                print(f"[TTS] voice[{i}] id={getattr(v, 'id', None)} name={getattr(v, 'name', None)}")
-        except Exception as e:
-            print("[TTS] couldn't list voices:", e)
-    except Exception as e:
-        print("[TTS] engine init failed in worker:", repr(e))
-        return
+        # Vi behöver inte ens skicka något, detta öppnar bara interfacet
+        s.connect(('8.8.8.8', 1))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = '127.0.0.1'
+    finally:
+        s.close()
+    return ip
 
-    while True:
-        text = _tts_queue.get()
-        if text is None:
-            break
-        try:
-            print(f"[TTS] speaking: {text}")
-            engine.say(text)
-            engine.runAndWait()
-            print(f"[TTS] done: {text}")
-        except Exception as e:
-            print("[TTS] error while speaking:", repr(e))
-        _tts_queue.task_done()
+async def handler(websocket):
+    print(f"ESP32 ansluten från: {websocket.remote_address}")
+    try:
+        async for message in websocket:
+            # Kontrollera att vi fått rätt mängd data
+            if len(message) == EXPECTED_SIZE:
+                # Packa upp hela batchen
+                # "100fH" betyder: repetera (float, uint16) 100 gånger
+                format_str = "<" + "fH" * LIDAR_PACKET_LENGTH
+                data = struct.unpack(format_str, message)
 
-if pyttsx3_available:
-    _worker_thread = threading.Thread(target=_tts_worker, daemon=True)
-    _worker_thread.start()
+                # Dela upp datan (varannan är vinkel, varannan distans)
+                angles = data[0::2]    # Börja på 0, hoppa 2
+                distances = data[1::2] # Börja på 1, hoppa 2
 
-def speak(text: str):
-    # If configured, use PowerShell SAPI TTS on Windows (synchronous, reliable)
-    if USE_POWERSHELL_TTS:
-        safe = text.replace('"', '\\"')
-        cmd = [
-            "powershell",
-            "-Command",
-            f"Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak(\"{safe}\")",
-        ]
-        try:
-            print(f"[TTS] powershell speaking: {text}")
-            subprocess.run(cmd, check=True)
-            print(f"[TTS] powershell done: {text}")
-        except Exception as e:
-            print("[TTS] powershell error:", repr(e))
-        return
 
-    if not pyttsx3_available:
-        print(f"[TTS] not available, skipping speak: {text}")
-        return
 
-    print(f"[TTS] queueing: {text}")
-    _tts_queue.put(text)
+                xpoints = np.array(distances) * np.cos(np.radians(angles))
+                ypoints = np.array(distances) * np.sin(np.radians(angles))
+
+                plt.plot(xpoints, ypoints)
+                plt.show()
+
+
+                # Skriv ut första mätningen i paketet som exempel
+                print(f"Mottaget paket! Första mätning: Vinkel: {angles[0]:.2f}°, Distans: {distances[0]} cm")
+            else:
+                print(f"Oväntad datastorlek: {len(message)} bytes")
+
+    except websockets.ConnectionClosed:
+        print("ESP32 kopplade ifrån.")
+
+async def main():
+    local_ip = get_local_ip()
+    print("="*40)
+    print(f"LIDAR SERVER STARTAD")
+    print(f"Lokal IP: {local_ip}")
+    print(f"I din ESP32-kod, använd: ws://{local_ip}:{PORT}")
+    print("="*40)
+    
+    async with websockets.serve(handler, IP, PORT):
+        await asyncio.Future()
 
 if __name__ == "__main__":
-    try:
-        while True:
-            for word in ("Stövlar", "Katter"):
-                print(word)
-                speak(word)
-                time.sleep(0.1)
-    except KeyboardInterrupt:
-        # If worker thread was started, signal it to exit and join
-        if pyttsx3_available and '_worker_thread' in globals():
-            _tts_queue.put(None)
-            _worker_thread.join()
+    asyncio.run(main())

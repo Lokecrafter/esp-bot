@@ -5,6 +5,7 @@
 #include "lidar.h"
 #include "tachometer.h"
 #include "driver/gpio.h"
+#include "communications.h"
 
 // static const char *TAG = "MAIN";
 
@@ -26,8 +27,15 @@
 
 extern "C" void app_main() {
 
+    init_wifi();
+
     init_lidar(4096, 5, 1);
     init_tachometer(4096, 5, 1);
+    websocket_init();
+
+    
+    
+    
     // xTaskCreatePinnedToCore(
     //     &test_task,
     //     "test_task",
