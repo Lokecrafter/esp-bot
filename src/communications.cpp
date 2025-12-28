@@ -25,7 +25,7 @@ void websocket_task(void *pvParameters) {
                 // Vi castar vår struct till en uint8_t-pekare
                 esp_websocket_client_send_bin(
                     client, 
-                    (const char *)&batch_buffer, 
+                    (const char *)batch_buffer, 
                     sizeof(lidar_data_t) * LIDAR_PACKET_LENGTH, 
                     portMAX_DELAY
                 );
@@ -44,6 +44,9 @@ void websocket_app_start(void)
     
     // Starta klienten
     esp_websocket_client_start(client);
+
+
+    xQueueReset(lidar_packet_queue); // Reset the queue before starting to send data.
     
     // Skapa din task här eller efter att anslutning bekräftats via events
     xTaskCreate(websocket_task, "ws_task", 4096, NULL, 5, NULL);
