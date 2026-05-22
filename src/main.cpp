@@ -3,7 +3,6 @@
 #include "esp_log.h"
 #include <cstdio>
 #include "lidar.h"
-#include "tachometer.h"
 #include "driver/gpio.h"
 #include "communications.h"
 #include "encoder.h"

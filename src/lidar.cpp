@@ -7,7 +7,6 @@
 # include "driver/i2c_master.h"
 # include <string>
 # include "esp_timer.h"
-# include "tachometer.h"
 
 
 # define LIDAR_INTERRUPT_PIN GPIO_NUM_13
@@ -91,7 +90,8 @@ void sensor_read_task(void *pvParameters) {
             uint16_t distance = read_distance_measurement();
 
             lidar_data_t data = {
-                .angle = tachometer_get_angle_degrees(last_wake_microseconds),
+                // .angle = tachometer_get_angle_degrees(last_wake_microseconds),
+                // .angle = tachometer_get_angle_degrees(last_wake_microseconds),
                 .distance = distance
             };
 
