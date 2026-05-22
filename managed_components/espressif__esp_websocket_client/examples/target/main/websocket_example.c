@@ -122,7 +122,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
     }
 }
 
-static void websocket_init(void)
+static void websocket_app_start(void)
 {
     esp_websocket_client_config_t websocket_cfg = {};
 
@@ -187,5 +187,5 @@ void app_main(void)
      */
     ESP_ERROR_CHECK(example_connect());
 
-    websocket_init();
+    websocket_app_start();
 }

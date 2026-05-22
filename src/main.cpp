@@ -6,43 +6,55 @@
 #include "tachometer.h"
 #include "driver/gpio.h"
 #include "communications.h"
+#include "encoder.h"
 
-// static const char *TAG = "MAIN";
+static const char *TAG = "MAIN";
 
 
-// void test_task(void *pvParameters) {
-//     ESP_LOGI(TAG, "Test task started");
-//     gpio_set_direction(GPIO_NUM_13, GPIO_MODE_INPUT);
-//     gpio_set_pull_mode(GPIO_NUM_13, GPIO_FLOATING);
+void test_task(void *pvParameters) {
+    ESP_LOGI(TAG, "Test task started");
 
-//     while (1) {
-//         if (gpio_get_level(GPIO_NUM_13) == 0) {
-//             ESP_LOGI(TAG, "GPIO 13 Interrupted");
-//             vTaskDelay(pdMS_TO_TICKS(100));
-//         }
-//         taskYIELD();
-//     }
-// }
+
+    Encoder test_encoder = Encoder(GPIO_NUM_3, GPIO_NUM_13, 32*4);
+
+    while (1) {
+
+        float angle = test_encoder.get_angle_deg();
+
+        ESP_LOGI(TAG, "Angle: %f deg", angle);
+        vTaskDelay(pdMS_TO_TICKS(300));
+    }
+    // gpio_set_direction(GPIO_NUM_13, GPIO_MODE_INPUT);
+    // gpio_set_pull_mode(GPIO_NUM_13, GPIO_FLOATING);
+
+    // while (1) {
+    //     if (gpio_get_level(GPIO_NUM_13) == 0) {
+    //         ESP_LOGI(TAG, "GPIO 13 Interrupted");
+    //         vTaskDelay(pdMS_TO_TICKS(100));
+    //     }
+    //     taskYIELD();
+    // }
+}
 
 
 extern "C" void app_main() {
 
-    init_wifi();
+    // init_wifi();
 
-    init_lidar(4096, 5, 1);
-    init_tachometer(4096, 5, 1);
-    websocket_init();
+    // init_lidar(4096, 5, 1);
+    // init_tachometer(4096, 5, 1);
+    // websocket_init();
 
     
     
     
-    // xTaskCreatePinnedToCore(
-    //     &test_task,
-    //     "test_task",
-    //     2048,
-    //     NULL,
-    //     0,
-    //     NULL,
-    //     0
-    // );
+    xTaskCreatePinnedToCore(
+        &test_task,
+        "test_task",
+        2048,
+        NULL,
+        0,
+        NULL,
+        0
+    );
 }
