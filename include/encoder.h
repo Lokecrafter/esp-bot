@@ -2,6 +2,7 @@
 
 #include "driver/pulse_cnt.h"
 #include "driver/gpio.h"
+#include "esp_attr.h"
 
 class Encoder {
 private:
@@ -15,6 +16,6 @@ public:
     ~Encoder();
 
     int get_count();
-    void clear_count(); // Vi lägger till denna så externa klasser kan nollställa!
+    void clear_count() IRAM_ATTR; // Vi lägger till denna så externa klasser kan nollställa!
     float get_angle_deg();
 };

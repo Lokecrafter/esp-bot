@@ -47,7 +47,7 @@ int Encoder::get_count() {
     return pulse_count;
 }
 
-void Encoder::clear_count() {
+void IRAM_ATTR Encoder::clear_count() {
     ESP_ERROR_CHECK(pcnt_unit_clear_count(pcnt_unit));
 }
 

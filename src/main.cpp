@@ -60,8 +60,9 @@ extern "C" void app_main() {
 
     // init_wifi();
 
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
     // init_lidar(4096, 5, 1);
-    // init_tachometer(4096, 5, 1);
     // websocket_init();
 
     

@@ -7,10 +7,14 @@
 # include "driver/i2c_master.h"
 # include <string>
 # include "esp_timer.h"
+# include "encoder.h"
 
 
-# define LIDAR_INTERRUPT_PIN GPIO_NUM_13
+# define LIDAR_INTERRUPT_PIN GPIO_NUM_14
 # define TIMEOUT_MS 10
+# define LIDAR_ENCODER_PIN_A GPIO_NUM_4
+# define LIDAR_ENCODER_PIN_B GPIO_NUM_13
+# define LIDAR_INDEX_PIN GPIO_NUM_25
 
 static const char *TAG = "LIDAR";
 
@@ -20,6 +24,8 @@ SemaphoreHandle_t sensor_sem = NULL;
 i2c_master_bus_handle_t i2c_bus;
 i2c_master_dev_handle_t lidar_dev;
 uint8_t measurement_counter = 0;
+
+Encoder lidar_encoder = Encoder(LIDAR_ENCODER_PIN_A, LIDAR_ENCODER_PIN_B, 32*4);
 
 void write_to_lidar_register(uint8_t reg, uint8_t value){
     uint8_t data[2] = {reg, value};
@@ -73,9 +79,11 @@ static void IRAM_ATTR lidar_measurement_isr_handler(void* arg) {
         portYIELD_FROM_ISR();
     }
 }
+// ISR for index pin
+static void IRAM_ATTR lidar_index_isr_handler(void* arg) {
+    lidar_encoder.clear_count();
+}
 void sensor_read_task(void *pvParameters) {
-    uint64_t last_wake_microseconds = esp_timer_get_time();
-    
     while (1) {
         if (measurement_counter >= LIDAR_PACKET_LENGTH) measurement_counter = 0;
         if (measurement_counter == 0) ESP_LOGI(TAG, "Bias correction measurement");
@@ -84,20 +92,18 @@ void sensor_read_task(void *pvParameters) {
         
         vTaskDelay(pdMS_TO_TICKS(1)); // Minimum delay to allow measurement to start
         
-        // uint64_t wait_start = esp_timer_get_time();
+        uint64_t wait_start = esp_timer_get_time();
         if (xSemaphoreTake(sensor_sem, pdMS_TO_TICKS(200)) == pdTRUE) {
-            last_wake_microseconds = esp_timer_get_time();
             uint16_t distance = read_distance_measurement();
 
             lidar_data_t data = {
-                // .angle = tachometer_get_angle_degrees(last_wake_microseconds),
-                // .angle = tachometer_get_angle_degrees(last_wake_microseconds),
+                .angle = lidar_encoder.get_angle_deg(),
                 .distance = distance
             };
 
-            xQueueSend(lidar_packet_queue, &data, 0);
+            // xQueueSend(lidar_packet_queue, &data, 0);
 
-            // ESP_LOGI(TAG, "%d cm   Frequency: %f Hz   Wait time: %llu µs", distance, 1000000.0f/(esp_timer_get_time() - last_wake_microseconds), esp_timer_get_time() - wait_start);
+            ESP_LOGI(TAG, "%d cm   Angle: %f deg   Wait time: %llu µs", distance, lidar_encoder.get_angle_deg(), esp_timer_get_time() - wait_start);
         }
         else {
             uint16_t distance = read_distance_measurement();
@@ -156,6 +162,12 @@ void init_lidar(uint32_t stack_size, uint8_t priority, uint8_t core_id) {
     gpio_set_intr_type(LIDAR_INTERRUPT_PIN, GPIO_INTR_NEGEDGE);
     gpio_set_pull_mode(LIDAR_INTERRUPT_PIN, GPIO_FLOATING);
     gpio_isr_handler_add(LIDAR_INTERRUPT_PIN, lidar_measurement_isr_handler, NULL);
+
+    // Configure index pin and interrupt for zero point in lidar
+    gpio_set_direction(LIDAR_INDEX_PIN, GPIO_MODE_INPUT);
+    gpio_set_intr_type(LIDAR_INDEX_PIN, GPIO_INTR_NEGEDGE);
+    gpio_set_pull_mode(LIDAR_INDEX_PIN, GPIO_FLOATING);
+    gpio_isr_handler_add(LIDAR_INDEX_PIN, lidar_index_isr_handler, NULL);
 
     vTaskDelay(pdMS_TO_TICKS(100));
 
