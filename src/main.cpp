@@ -30,18 +30,29 @@ void test_task(void *pvParameters) {
 
 
     while (1) {
-
-        float angle = test_encoder.get_angle_deg();
-        float time_since_last = (float)(esp_timer_get_time() - start_time) / 1000000.0f;
-        start_time = esp_timer_get_time();
-
-        float speed = (test_encoder.get_count() - last_count) / time_since_last; // counts per second
-        last_count = test_encoder.get_count();
         const char* fork = (gpio_get_level(GPIO_NUM_25) == 1) ? "yes" : "no";
 
-        ESP_LOGI(TAG, "Angle: %f deg   Count: %d    Speed: %f   Fork: %s", angle, test_encoder.get_count(), speed, fork);
-        vTaskDelay(pdMS_TO_TICKS(100));
+        if (gpio_get_level(GPIO_NUM_25) == 1) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
+        else {
+            ESP_LOGI(TAG, "Fork: %s", fork);
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
+    // while (1) {
+
+    //     float angle = test_encoder.get_angle_deg();
+    //     float time_since_last = (float)(esp_timer_get_time() - start_time) / 1000000.0f;
+    //     start_time = esp_timer_get_time();
+
+    //     float speed = (test_encoder.get_count() - last_count) / time_since_last; // counts per second
+    //     last_count = test_encoder.get_count();
+    //     const char* fork = (gpio_get_level(GPIO_NUM_25) == 1) ? "yes" : "no";
+
+    //     ESP_LOGI(TAG, "Angle: %f deg   Count: %d    Speed: %f   Fork: %s", angle, test_encoder.get_count(), speed, fork);
+    //     vTaskDelay(pdMS_TO_TICKS(100));
+    // }
     // gpio_set_direction(GPIO_NUM_13, GPIO_MODE_INPUT);
     // gpio_set_pull_mode(GPIO_NUM_13, GPIO_FLOATING);
 
@@ -58,23 +69,23 @@ void test_task(void *pvParameters) {
 
 extern "C" void app_main() {
 
-    // init_wifi();
+    init_wifi();
 
     vTaskDelay(pdMS_TO_TICKS(1000));
 
-    // init_lidar(4096, 5, 1);
-    // websocket_init();
+    init_lidar(4096, 5, 1);
+    websocket_init();
 
     
     
     
-    xTaskCreatePinnedToCore(
-        &test_task,
-        "test_task",
-        2048,
-        NULL,
-        0,
-        NULL,
-        0
-    );
+    // xTaskCreatePinnedToCore(
+    //     &test_task,
+    //     "test_task",
+    //     2048,
+    //     NULL,
+    //     0,
+    //     NULL,
+    //     0
+    // );
 }

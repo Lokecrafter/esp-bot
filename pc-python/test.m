@@ -3,8 +3,8 @@
 rawData = readmatrix('lidar_data.csv');
 
 % 2. Separera vinklar och avstånd
-angles_deg = rawData(end-200:end,1) + 180;
-distances = rawData(end-200:end,2);
+angles_deg = rawData(1:end,1) + 180;
+distances = rawData(1:end,2);
 
 % --- Härifrån kör du din befintliga visualiseringskod ---
 validIdx = distances > 5 & distances < 200;

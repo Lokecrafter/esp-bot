@@ -26,10 +26,12 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
-#define SSID          "Musteryd"
-#define PASSWORD      "saabsonette"
+// #define SSID          "Musteryd"
+// #define PASSWORD      "saabsonette"
+#define SSID          "sapo_overvakningscentral_2"
+#define PASSWORD      "sapo_overvakning_123"
 #define MAXIMUM_RETRY 5
-#define WEBSOCKET_SERVER_URL "ws://192.168.68.68:8080" // Ändra till din server
+#define WEBSOCKET_SERVER_URL "ws://192.168.0.222:8765" // Ändra till din server
 
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
@@ -135,34 +137,57 @@ static esp_websocket_client_handle_t client;
 
 
 void websocket_task(void *pvParameters) {
-    lidar_data_t batch_buffer[LIDAR_PACKET_LENGTH];
-    uint16_t count = 0;
+    lidar_scan_t* scan_to_send = NULL;
 
     while(1) {
-        if (xQueueReceive(lidar_packet_queue, &batch_buffer[count], portMAX_DELAY)) {
+        // Tasken ligger helt blockerad (sover) tills mätgaffeln triggar ett helt klart varv
+        if (xQueueReceive(lidar_scan_queue, &scan_to_send, portMAX_DELAY)) {
+            
             if (client == NULL || esp_websocket_client_is_connected(client) == false) {
-                ESP_LOGW(TAG, "WebSocket client not connected, skipping sending data");
-                count = 0;
-                xQueueReset(lidar_packet_queue); // Reset the queue when disconnected
-                continue; // Hoppa över om inte ansluten
+                ESP_LOGW(TAG, "WebSocket not connected, dropping scan");
+                continue;
             }
 
-
-            count++;
-            if (count >= LIDAR_PACKET_LENGTH) {
-                // Skicka binärt via ESP-IDF WebSocket-klient/server
-                // Vi castar vår struct till en uint8_t-pekare
-                esp_websocket_client_send_bin(
-                    client, 
-                    (const char *)batch_buffer, 
-                    sizeof(lidar_data_t) * LIDAR_PACKET_LENGTH, 
-                    portMAX_DELAY
-                );
-                count = 0;
-            }
+            // Skicka HELA varvets buffer binärt till Python i en enda stöt!
+            esp_websocket_client_send_bin(
+                client, 
+                (const char *)scan_to_send, 
+                sizeof(lidar_scan_t), 
+                pdMS_TO_TICKS(50) // Ge den max 50ms att skicka så vi inte blockerar för länge
+            );
         }
     }
 }
+
+// void websocket_task(void *pvParameters) {
+//     lidar_data_t batch_buffer[LIDAR_PACKET_LENGTH];
+//     uint16_t count = 0;
+
+//     while(1) {
+//         if (xQueueReceive(lidar_packet_queue, &batch_buffer[count], portMAX_DELAY)) {
+//             if (client == NULL || esp_websocket_client_is_connected(client) == false) {
+//                 ESP_LOGW(TAG, "WebSocket client not connected, skipping sending data");
+//                 count = 0;
+//                 xQueueReset(lidar_packet_queue); // Reset the queue when disconnected
+//                 continue; // Hoppa över om inte ansluten
+//             }
+
+
+//             count++;
+//             if (count >= LIDAR_PACKET_LENGTH) {
+//                 // Skicka binärt via ESP-IDF WebSocket-klient/server
+//                 // Vi castar vår struct till en uint8_t-pekare
+//                 esp_websocket_client_send_bin(
+//                     client, 
+//                     (const char *)batch_buffer, 
+//                     sizeof(lidar_data_t) * LIDAR_PACKET_LENGTH, 
+//                     portMAX_DELAY
+//                 );
+//                 count = 0;
+//             }
+//         }
+//     }
+// }
 
 void websocket_init()
 {
@@ -173,6 +198,7 @@ void websocket_init()
 
     esp_websocket_client_start(client);
 
-    xQueueReset(lidar_packet_queue); // Reset the queue before starting to send data.
+    // xQueueReset(lidar_packet_queue); // Reset the queue before starting to send data.
+    xQueueReset(lidar_scan_queue); // Reset the queue before starting to send data.
     xTaskCreate(websocket_task, "ws_task", 4096, NULL, 5, NULL);
 }
