@@ -116,7 +116,7 @@ void sensor_read_task(void *pvParameters) {
 
             int angle_index = (int)(current_angle / (360.0f / ENCODER_STEPS)) % ENCODER_STEPS;
             if (angle_index < 0) angle_index += ENCODER_STEPS;
-
+            // ESP_LOGI(TAG, "Läste avstånd: %d cm, Vinkel-index: %d", current_distance, angle_index);
             // Skriv direkt till den aktuella säkra bufferten
             if (current_write_buffer->valid[angle_index] == 0) {
                 current_write_buffer->distances[angle_index] = current_distance;
@@ -190,8 +190,32 @@ static void IRAM_ATTR lidar_measurement_isr_handler(void* arg) {
 // -------------------------------------------------------------------------
 // Initialisering
 // -------------------------------------------------------------------------
+void force_i2c_bus_recovery(gpio_num_t scl_pin, gpio_num_t sda_pin) {
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << scl_pin) | (1ULL << sda_pin),
+        .mode = GPIO_MODE_INPUT_OUTPUT_OD, // Open-drain är viktigt för I2C
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&io_conf);
+
+    // Om SDA hålls låg av sensorn, pulsa SCL för att frigöra den
+    for (int i = 0; i < 9; i++) {
+        gpio_set_level(scl_pin, 0);
+        esp_rom_delay_us(5);
+        gpio_set_level(scl_pin, 1);
+        esp_rom_delay_us(5);
+    }
+    
+    // Ge bussen ett kort ögonblick att stabiliseras
+    esp_rom_delay_us(100);
+    ESP_LOGI("I2C_RECOVERY", "I2C-bussen har återställts manuellt.");
+}
 void init_lidar(uint32_t stack_size, uint8_t priority, uint8_t core_id) {
     ESP_LOGI(TAG, "Initializing LIDAR...");
+
+    force_i2c_bus_recovery(GPIO_NUM_22, GPIO_NUM_21); // SCL, SDA
 
     // Skapa kön för hela varv-skanningar
     lidar_scan_queue = xQueueCreate(4, sizeof(lidar_scan_t*)); 

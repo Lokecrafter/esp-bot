@@ -1,14 +1,3 @@
-/* WiFi station Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-
-
-
 #include "communications.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -26,45 +15,50 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
-// #define SSID          "Musteryd"
-// #define PASSWORD      "saabsonette"
 #define SSID          "sapo_overvakningscentral_2"
 #define PASSWORD      "sapo_overvakning_123"
-#define MAXIMUM_RETRY 5
-#define WEBSOCKET_SERVER_URL "ws://192.168.0.222:8765" // Ändra till din server
+#define WEBSOCKET_SERVER_URL "ws://192.168.0.222:8765"
 
-/* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
-
-/* The event group allows multiple bits for each event, but we only care about two events:
- * - we are connected to the AP with an IP
- * - we failed to connect after the maximum amount of retries */
 #define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT      BIT1
 
 static const char *TAG = "COMMUNICATIONS";
+static esp_websocket_client_handle_t client = NULL;
+static volatile bool is_ws_connected = false;
 
-static int s_retry_num = 0;
-static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+// WiFi Event Handler - Helt utan blockerande vTaskDelay!
+static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } 
     else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < MAXIMUM_RETRY) {
-            esp_wifi_connect();
-            s_retry_num++;
-            ESP_LOGI(TAG, "retry to connect to the AP");
-        } 
-        else {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-        }
-        ESP_LOGI(TAG,"connect to the AP fail");
+        xEventGroupClearBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        is_ws_connected = false;
+        ESP_LOGW(TAG, "WiFi bortkopplat! Försöker ansluta igen direkt...");
+        esp_wifi_connect(); // ESP-IDF hanterar back-off internt
     } 
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
-        ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
-        s_retry_num = 0;
+        ESP_LOGI(TAG, "WiFi Anslutet! IP: " IPSTR, IP2STR(&event->ip_info.ip));
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+    }
+}
+
+// WebSocket Event Handler
+static void websocket_event_handler(void *handler_args, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+    switch (event_id) {
+        case WEBSOCKET_EVENT_CONNECTED:
+            ESP_LOGI(TAG, "WebSocket ansluten till Python-servern!");
+            is_ws_connected = true;
+            break;
+        case WEBSOCKET_EVENT_DISCONNECTED:
+            ESP_LOGW(TAG, "WebSocket bortkopplad från Python-servern!");
+            is_ws_connected = false;
+            break;
+        case WEBSOCKET_EVENT_ERROR:
+            ESP_LOGE(TAG, "WebSocket-fel uppstod.");
+            is_ws_connected = false;
+            break;
     }
 }
 
@@ -72,133 +66,88 @@ void wifi_init_sta(void) {
     s_wifi_event_group = xEventGroupCreate();
 
     ESP_ERROR_CHECK(esp_netif_init());
-
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    esp_event_handler_instance_t instance_any_id;
-    esp_event_handler_instance_t instance_got_ip;
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, &instance_any_id));
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL, &instance_got_ip));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL));
 
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = SSID,
-            .password = PASSWORD,
-            .threshold = {.authmode = WIFI_AUTH_OPEN},
-        },
-    };
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
-    ESP_ERROR_CHECK(esp_wifi_start() );
+    wifi_config_t wifi_config = {};
+    strcpy((char*)wifi_config.sta.ssid, SSID);
+    strcpy((char*)wifi_config.sta.password, PASSWORD);
+    // Låt scannern själv förhandla authmode (betydligt säkrare och mer kompatibelt)
+    wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN; 
 
-    ESP_LOGI(TAG, "wifi_init_sta finished.");
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
 
-    /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
-     * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
-    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
-            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-            pdFALSE,
-            pdFALSE,
-            portMAX_DELAY);
-
-    /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
-     * happened. */
-    if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
-                 SSID, PASSWORD);
-    } else if (bits & WIFI_FAIL_BIT) {
-        ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
-                 SSID, PASSWORD);
-    } else {
-        ESP_LOGE(TAG, "UNEXPECTED EVENT");
-    }
+    ESP_LOGI(TAG, "Väntar på WiFi-anslutning...");
+    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE, pdFALSE, portMAX_DELAY);
 }
 
 void init_wifi(){
-    //Initialize NVS
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
       ESP_ERROR_CHECK(nvs_flash_erase());
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
-
-    ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
     wifi_init_sta();
 }
 
-
-// Denna variabel används i din task
-static esp_websocket_client_handle_t client;
-
-
 void websocket_task(void *pvParameters) {
     lidar_scan_t* scan_to_send = NULL;
+    uint32_t dropped_scans = 0;
 
     while(1) {
-        // Tasken ligger helt blockerad (sover) tills mätgaffeln triggar ett helt klart varv
         if (xQueueReceive(lidar_scan_queue, &scan_to_send, portMAX_DELAY)) {
             
-            if (client == NULL || esp_websocket_client_is_connected(client) == false) {
-                ESP_LOGW(TAG, "WebSocket not connected, dropping scan");
+            if (!is_ws_connected || client == NULL) {
+                dropped_scans++;
+                if (dropped_scans % 30 == 0) {
+                    ESP_LOGW(TAG, "Python-server ej nåbar via WebSocket. Kastat %lu varv.", dropped_scans);
+                }
+                xQueueReset(lidar_scan_queue); 
+                vTaskDelay(pdMS_TO_TICKS(5)); 
                 continue;
             }
 
-            // Skicka HELA varvets buffer binärt till Python i en enda stöt!
-            esp_websocket_client_send_bin(
+            dropped_scans = 0;
+
+            int res = esp_websocket_client_send_bin(
                 client, 
                 (const char *)scan_to_send, 
                 sizeof(lidar_scan_t), 
-                pdMS_TO_TICKS(50) // Ge den max 50ms att skicka så vi inte blockerar för länge
+                pdMS_TO_TICKS(30)
             );
+
+            if (res < 0) {
+                ESP_LOGE(TAG, "Kunde inte skicka binärpaketet över nätverket.");
+            }
         }
     }
 }
-
-// void websocket_task(void *pvParameters) {
-//     lidar_data_t batch_buffer[LIDAR_PACKET_LENGTH];
-//     uint16_t count = 0;
-
-//     while(1) {
-//         if (xQueueReceive(lidar_packet_queue, &batch_buffer[count], portMAX_DELAY)) {
-//             if (client == NULL || esp_websocket_client_is_connected(client) == false) {
-//                 ESP_LOGW(TAG, "WebSocket client not connected, skipping sending data");
-//                 count = 0;
-//                 xQueueReset(lidar_packet_queue); // Reset the queue when disconnected
-//                 continue; // Hoppa över om inte ansluten
-//             }
-
-
-//             count++;
-//             if (count >= LIDAR_PACKET_LENGTH) {
-//                 // Skicka binärt via ESP-IDF WebSocket-klient/server
-//                 // Vi castar vår struct till en uint8_t-pekare
-//                 esp_websocket_client_send_bin(
-//                     client, 
-//                     (const char *)batch_buffer, 
-//                     sizeof(lidar_data_t) * LIDAR_PACKET_LENGTH, 
-//                     portMAX_DELAY
-//                 );
-//                 count = 0;
-//             }
-//         }
-//     }
-// }
 
 void websocket_init()
 {
     esp_websocket_client_config_t websocket_cfg = {};
     websocket_cfg.uri = WEBSOCKET_SERVER_URL;
+    
+    // Auto-reconnect parametrar till ESP-IDF stacken
+    websocket_cfg.reconnect_timeout_ms = 1000;
+    websocket_cfg.network_timeout_ms = 4000;
 
     client = esp_websocket_client_init(&websocket_cfg);
 
+    ESP_ERROR_CHECK(esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL));
+
     esp_websocket_client_start(client);
 
-    // xQueueReset(lidar_packet_queue); // Reset the queue before starting to send data.
-    xQueueReset(lidar_scan_queue); // Reset the queue before starting to send data.
-    xTaskCreate(websocket_task, "ws_task", 4096, NULL, 5, NULL);
+    xQueueReset(lidar_scan_queue); 
+    xTaskCreate(websocket_task, "ws_task", 4096, NULL, 3, NULL);
+    ESP_LOGI(TAG, "WebSocket startad.");
 }
