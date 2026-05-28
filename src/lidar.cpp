@@ -11,11 +11,11 @@
 #include <math.h>
 #include <string.h> // För memset
 
-#define LIDAR_INTERRUPT_PIN GPIO_NUM_14
+#define LIDAR_INTERRUPT_PIN GPIO_NUM_32
 #define TIMEOUT_MS 10
-#define LIDAR_ENCODER_PIN_A GPIO_NUM_4
-#define LIDAR_ENCODER_PIN_B GPIO_NUM_13
-#define LIDAR_INDEX_PIN GPIO_NUM_25
+#define LIDAR_ENCODER_PIN_A GPIO_NUM_39
+#define LIDAR_ENCODER_PIN_B GPIO_NUM_36
+#define LIDAR_INDEX_PIN GPIO_NUM_35
 
 static const char *TAG = "LIDAR";
 
