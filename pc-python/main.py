@@ -20,6 +20,27 @@ def draw_empty_screen(status_text="Vantar pa ESP32..."):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
     return img
 
+
+async def send_led_data(websocket):
+    # Skapa en lista med RGB-värden för 24 lysdioder
+    # LED 1: Röd (255,0,0), LED 2: Grön (0,255,0), resten släckta...
+    num_leds = 24
+    led_data = bytearray(num_leds * 3)
+    
+    # Sätt första LED till helröd
+    led_data[0] = 255 # R
+    led_data[1] = 0   # G
+    led_data[2] = 0   # B
+    
+    # Sätt andra LED till helgrön
+    led_data[3] = 0   # R
+    led_data[4] = 255 # G
+    led_data[5] = 0   # B
+
+    # print("Trying to send lidar data")
+    # Skicka som binärdata över websocket
+    await websocket.send(led_data)
+
 async def handler(websocket):
     print(f"ESP32 ansluten från {websocket.remote_address}! Öppnar LiDAR-vy...")
     
@@ -31,7 +52,9 @@ async def handler(websocket):
                 # Om vi får ett trasigt paket vid omstart, hoppa bara över det
                 # istället för att krascha eller låsa uppläsningen
                 continue
-                
+            
+            await send_led_data(websocket)
+            
             format_str = f"<{ENCODER_STEPS}H{ENCODER_STEPS}B"
             unpacked = struct.unpack(format_str, message)
             
@@ -82,6 +105,8 @@ async def handler(websocket):
         except Exception as e:
             print(f"Fel i strömmen: {e}")
             break
+
+
 
 async def main():
     # Visa en tom startskärm direkt när servern drar igång

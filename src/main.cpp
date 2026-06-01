@@ -7,6 +7,7 @@
 #include "communications.h"
 #include "encoder.h"
 #include "esp_timer.h"
+#include "neopixel.h"
 
 static const char *TAG = "MAIN";
 
@@ -56,8 +57,18 @@ void test_task(void *pvParameters) {
     //         vTaskDelay(pdMS_TO_TICKS(100));
     //     }
     // }
-    while (1) {
+    size_t len_data = 3*sizeof(uint8_t)*NUM_LEDS;
 
+    uint8_t* rgb_data = (uint8_t*)malloc(len_data);
+    uint8_t red = 255;
+    uint8_t green = 128;
+    uint8_t blue = 0;
+
+    uint8_t leading_pixel = 0;
+
+    neopixel_init();
+
+    while (1) {
         float angle = test_encoder.get_angle_deg();
         float time_since_last = (float)(esp_timer_get_time() - start_time) / 1000000.0f;
         start_time = esp_timer_get_time();
@@ -67,7 +78,21 @@ void test_task(void *pvParameters) {
         const char* fork = (gpio_get_level(GPIO_NUM_25) == 1) ? "yes" : "no";
 
         ESP_LOGI(TAG, "Angle: %f deg   Count: %d    Speed: %f   Fork: %s", angle, test_encoder.get_count(), speed, fork);
+
+        for (int i = 0; i < NUM_LEDS; i++) {
+            rgb_data[3*i + 0] = 0;
+            rgb_data[3*i + 1] = 0;
+            rgb_data[3*i + 2] = 0;
+        }
+        rgb_data[3*leading_pixel + 0] = red;
+        rgb_data[3*leading_pixel + 1] = green;
+        rgb_data[3*leading_pixel + 2] = blue;
+        
+        set_leds(rgb_data);
+
         vTaskDelay(pdMS_TO_TICKS(100));
+        // leading_pixel++;
+        leading_pixel = leading_pixel % NUM_LEDS;
     }
     // gpio_set_direction(GPIO_NUM_13, GPIO_MODE_INPUT);
     // gpio_set_pull_mode(GPIO_NUM_13, GPIO_FLOATING);
@@ -85,23 +110,23 @@ void test_task(void *pvParameters) {
 
 extern "C" void app_main() {
 
-    // init_wifi();
+    init_wifi();
 
-    // vTaskDelay(pdMS_TO_TICKS(1000));
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
-    // init_lidar(4096, 5, 1);
-    // websocket_init();
+    init_lidar(4096, 5, 1);
+    websocket_init();
 
     
     
     
-    xTaskCreatePinnedToCore(
-        &test_task,
-        "test_task",
-        2048*4,
-        NULL,
-        0,
-        NULL,
-        0
-    );
+    // xTaskCreatePinnedToCore(
+    //     &test_task,
+    //     "test_task",
+    //     2048*4,
+    //     NULL,
+    //     0,
+    //     NULL,
+    //     0
+    // );
 }

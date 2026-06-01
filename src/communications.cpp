@@ -6,6 +6,7 @@
 #include "lidar.h"
 #include "esp_websocket_client.h"
 #include "esp_wifi.h"
+#include "neopixel.h"
 
 #include <string.h>
 #include "freertos/event_groups.h"
@@ -25,6 +26,9 @@ static EventGroupHandle_t s_wifi_event_group;
 static const char *TAG = "COMMUNICATIONS";
 static esp_websocket_client_handle_t client = NULL;
 static volatile bool is_ws_connected = false;
+
+static uint8_t* led_buffer = NULL;
+static size_t led_buffer_len = 0;
 
 // WiFi Event Handler - Helt utan blockerande vTaskDelay!
 static void wifi_event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
@@ -54,10 +58,40 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t event_b
         case WEBSOCKET_EVENT_DISCONNECTED:
             ESP_LOGW(TAG, "WebSocket bortkopplad från Python-servern!");
             is_ws_connected = false;
+
+            // Tvinga klienten att stoppa internt för att rensa trasiga nätverks-sockets
+            if (client != NULL) {
+                esp_websocket_client_stop(client);
+                // Vänta en liten stund (t.ex. 2 sekunder) och försök starta om lyssnaren
+                vTaskDelay(pdMS_TO_TICKS(2000));
+                ESP_LOGI(TAG, "Försöker starta om WebSocket-klienten...");
+                esp_websocket_client_start(client);
+            }
             break;
         case WEBSOCKET_EVENT_ERROR:
             ESP_LOGE(TAG, "WebSocket-fel uppstod.");
             is_ws_connected = false;
+            break;
+        case WEBSOCKET_EVENT_DATA:
+            esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
+
+            // Kontrollera att det faktiskt är ett binärt eller text-paket med data
+            if (data->op_code == WS_TRANSPORT_OPCODES_BINARY || data->op_code == WS_TRANSPORT_OPCODES_TEXT) {
+                
+                // Säkerhetskoll: Kontrollera att vi inte får mer data än vad som får plats i bufferten
+                if (data->data_len == led_buffer_len) {
+                    
+                    // 1. Kopiera över råa bytes från websocket-eventet till din fasta buffert
+                    memcpy(led_buffer, data->data_ptr, data->data_len);
+
+                    
+                    // 2. Skicka datan direkt till dina Neopixels!
+                    set_leds(led_buffer);
+                    
+                } else {
+                    ESP_LOGW(TAG, "Mottog felaktig datalängd! Förväntade %d bytes, fick %d", led_buffer_len, data->data_len);
+                }
+            }
             break;
     }
 }
@@ -104,7 +138,7 @@ void websocket_task(void *pvParameters) {
     uint32_t dropped_scans = 0;
 
     while(1) {
-        if (xQueueReceive(lidar_scan_queue, &scan_to_send, portMAX_DELAY)) {
+        if (xQueueReceive(lidar_scan_queue, &scan_to_send, pdMS_TO_TICKS(100))) {
             
             if (!is_ws_connected || client == NULL) {
                 dropped_scans++;
@@ -122,11 +156,12 @@ void websocket_task(void *pvParameters) {
                 client, 
                 (const char *)scan_to_send, 
                 sizeof(lidar_scan_t), 
-                pdMS_TO_TICKS(30)
+                pdMS_TO_TICKS(50)
             );
 
             if (res < 0) {
                 ESP_LOGE(TAG, "Kunde inte skicka binärpaketet över nätverket.");
+                is_ws_connected = false;
             }
         }
     }
@@ -134,6 +169,18 @@ void websocket_task(void *pvParameters) {
 
 void websocket_init()
 {
+    neopixel_init();
+
+    led_buffer_len = 3 * NUM_LEDS;
+    
+    // Allokera det interna minnet en gång för alla
+    led_buffer = (uint8_t*)malloc(led_buffer_len);
+    if (led_buffer == NULL) {
+        ESP_LOGE(TAG, "Could not allocate memory for the LED buffer!");
+        return;
+    }
+    memset(led_buffer, 0, led_buffer_len);
+
     esp_websocket_client_config_t websocket_cfg = {};
     websocket_cfg.uri = WEBSOCKET_SERVER_URL;
     
